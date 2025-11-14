@@ -1,0 +1,7 @@
+{
+  "name": "AI Content Planner",
+  "description": "An intelligent content planner that helps you generate ideas, write captions, find hashtags, and create visuals for your social media grid using AI.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
