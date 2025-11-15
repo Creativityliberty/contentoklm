@@ -1,5 +1,6 @@
+
 export type ContentType = 'Image' | 'Reel' | 'Carousel';
-export type PostStatus = 'empty' | 'draft';
+export type PostStatus = 'empty' | 'draft' | 'published';
 export type View = 'posts' | 'connections' | 'analytics' | 'users' | 'apiKeys' | 'apiDocs';
 export type AspectRatio = '1:1' | '3:4' | '4:3' | '16:9' | '9:16';
 
@@ -26,6 +27,10 @@ export interface Post {
   pillarId?: number;
   campaignId?: string;
   groundingCitations?: GroundingCitation[];
+  likes?: number;
+  comments?: number;
+  shares?: number;
+  aiAnalysis?: string;
 }
 
 export interface BrandVoice {
@@ -68,6 +73,7 @@ export type ToastMessage = {
 export type ToastContextType = {
   toasts: ToastMessage[];
   addToast: (message: string, type: 'success' | 'error') => void;
+  setToasts: React.Dispatch<React.SetStateAction<ToastMessage[]>>;
 };
 
 export type PostsContextType = {
