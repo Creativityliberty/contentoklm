@@ -1,5 +1,5 @@
 import React from 'react';
-import { UsersIcon, SparkleIcon } from '../icons';
+import { UsersIcon, SparkleIcon, RefreshIcon } from '../icons';
 
 const UsersView = () => {
   return (
@@ -13,7 +13,7 @@ const UsersView = () => {
             </div>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-8">
+        <div className="space-y-8">
             {/* Invite Link Section */}
             <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-200">
                 <h3 className="font-bold text-lg text-slate-800 mb-2">Invite Link</h3>
@@ -27,7 +27,7 @@ const UsersView = () => {
                             <option>Select profiles...</option>
                         </select>
                     </div>
-                     <p className="text-xs text-slate-500">Choose full access or select multiple profiles. The invite link will be short and tokenized.</p>
+                     <p className="text-xs text-slate-500">Click "Generate link" to create a short invite URL.</p>
                     <button className="w-full bg-indigo-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-indigo-700 transition-colors">
                         Generate link
                     </button>
@@ -36,7 +36,12 @@ const UsersView = () => {
 
              {/* Team Members Section */}
             <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-200">
-                <h3 className="font-bold text-lg text-slate-800 mb-4">Team Members</h3>
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-lg text-slate-800">Team Members</h3>
+                    <button className="text-sm font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1.5">
+                        <RefreshIcon className="w-4 h-4" /> Refresh
+                    </button>
+                </div>
                 <div className="space-y-3">
                     <div className="flex items-center justify-between p-3 bg-slate-50 rounded-md">
                         <div>
@@ -46,6 +51,15 @@ const UsersView = () => {
                         <span className="px-2 py-1 bg-indigo-100 text-indigo-700 text-xs font-bold rounded-full">Owner</span>
                     </div>
                 </div>
+            </div>
+
+            {/* Danger Zone */}
+            <div className="bg-white p-6 rounded-lg shadow-sm border border-red-200">
+                <h3 className="font-bold text-lg text-red-700">Danger zone</h3>
+                <p className="text-sm text-slate-600 mt-2 mb-4">Permanently delete your account and all associated data. This action cannot be undone.</p>
+                <button className="text-sm font-semibold text-red-600 bg-red-100 hover:bg-red-200 px-4 py-2 rounded-lg">
+                    Delete your account
+                </button>
             </div>
         </div>
       </div>
