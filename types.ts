@@ -1,7 +1,6 @@
 export type ContentType = 'Image' | 'Reel' | 'Carousel';
 export type PostStatus = 'empty' | 'draft';
 export type View = 'posts' | 'connections' | 'analytics' | 'users' | 'apiKeys' | 'apiDocs';
-// FIX: Updated aspect ratio to supported values. '4:5' is not supported by the API, '3:4' and '4:3' are.
 export type AspectRatio = '1:1' | '3:4' | '4:3' | '16:9' | '9:16';
 
 export interface Pillar {
@@ -59,3 +58,28 @@ export interface PerformancePrediction {
   performanceScore: number;
   feedback: string[];
 }
+
+export type ToastMessage = {
+  id: number;
+  message: string;
+  type: 'success' | 'error';
+};
+
+export type ToastContextType = {
+  toasts: ToastMessage[];
+  addToast: (message: string, type: 'success' | 'error') => void;
+};
+
+export type PostsContextType = {
+  posts: Post[];
+  updatePost: (updatedPost: Post) => void;
+  setPosts: (posts: Post[]) => void;
+  setEditingPostId: (id: number | null) => void;
+};
+
+export type AppContextType = {
+  niche: string | null;
+  pillars: Pillar[];
+  brandVoice: BrandVoice | null;
+  onboardingComplete: (niche: string, pillars: Pillar[], voice: BrandVoice) => void;
+};

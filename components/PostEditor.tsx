@@ -1,7 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useContext } from 'react';
 import type { Post, ContentType, Pillar, BrandVoice, PerformancePrediction, AspectRatio, GroundingCitation } from '../types';
 import { SparkleIcon, ImageIcon, ReelIcon, CarouselIcon, XIcon, LoaderIcon, RocketLaunchIcon, SquareIcon, RectangleVerticalIcon, RectangleHorizontalIcon, ImageEditIcon, LinkIcon, GoogleIcon } from './icons';
 import { generateCaptions, generateHashtags, generateImage, predictPerformance, generateTopics, generateVideo, editImage } from '../services/geminiService';
+import { AppContext } from '../contexts/AppContext';
+import { PostsContext } from '../contexts/PostsContext';
+import { ToastContext } from '../contexts/ToastContext';
 
 const useDebounce = (value: string, delay: number) => {
     const [debouncedValue, setDebouncedValue] = useState(value);
@@ -16,6 +19,7 @@ const useDebounce = (value: string, delay: number) => {
     return debouncedValue;
 };
 
+// ... (ContentTypeButton, AIButton, PerformanceIndicator components remain the same) ...
 const ContentTypeButton: React.FC<{ type: ContentType; icon: React.ReactNode; currentType: ContentType; onClick: (type: ContentType) => void; }> = ({ type, icon, currentType, onClick }) => (
     <button
         onClick={() => onClick(type)}
@@ -75,16 +79,17 @@ const PerformanceIndicator: React.FC<{ prediction: PerformancePrediction | null,
     );
 };
 
+
 interface PostEditorProps {
     post: Post | null;
-    niche: string;
-    pillars: Pillar[];
-    brandVoice: BrandVoice;
-    onUpdatePost: (post: Post) => void;
     onClose: () => void;
 }
 
-export const PostEditor: React.FC<PostEditorProps> = ({ post, niche, pillars, brandVoice, onUpdatePost, onClose }) => {
+export const PostEditor: React.FC<PostEditorProps> = ({ post, onClose }) => {
+    const { niche, pillars, brandVoice } = useContext(AppContext)!;
+    const { updatePost } = useContext(PostsContext)!;
+    const { addToast } = useContext(ToastContext)!;
+    
     const [localPost, setLocalPost] = useState<Post | null>(post);
     const [isGeneratingCaptions, setIsGeneratingCaptions] = useState(false);
     const [generatedCaptions, setGeneratedCaptions] = useState<{caption: string, justification: string}[]>([]);
@@ -119,9 +124,14 @@ export const PostEditor: React.FC<PostEditorProps> = ({ post, niche, pillars, br
         const getPrediction = async () => {
             if (debouncedCaption.trim().length > 10) {
                 setIsPredicting(true);
-                const result = await predictPerformance(debouncedCaption, localPost!.contentType);
-                setPrediction(result);
-                setIsPredicting(false);
+                try {
+                    const result = await predictPerformance(debouncedCaption, localPost!.contentType);
+                    setPrediction(result);
+                } catch (error) {
+                    addToast((error as Error).message, 'error');
+                } finally {
+                    setIsPredicting(false);
+                }
             } else {
                 setPrediction(null);
             }
@@ -129,7 +139,7 @@ export const PostEditor: React.FC<PostEditorProps> = ({ post, niche, pillars, br
         if(localPost) {
             getPrediction();
         }
-    }, [debouncedCaption, localPost?.contentType]);
+    }, [debouncedCaption, localPost?.contentType, addToast]);
 
 
     if (!localPost) return null;
@@ -137,47 +147,62 @@ export const PostEditor: React.FC<PostEditorProps> = ({ post, niche, pillars, br
     const handleUpdate = <K extends keyof Post>(key: K, value: Post[K]) => {
         const updatedPost = { ...localPost!, [key]: value, status: 'draft' as 'draft' };
         setLocalPost(updatedPost);
-        onUpdatePost(updatedPost);
+        updatePost(updatedPost);
     };
 
     const handleSave = () => {
         if (localPost) {
-            onUpdatePost(localPost);
+            updatePost(localPost);
             onClose();
         }
     };
-
+    
     const handleGenerateTopics = async (useGoogle: boolean) => {
         if (!niche) return;
         setIsGeneratingTopics(true);
-        const result = await generateTopics(niche, useGoogle);
-        setGeneratedTopics(prev => ({
-            topics: [...result.topics, ...(prev?.topics ?? [])],
-            citations: [...result.citations, ...(prev?.citations ?? [])]
-        }));
-        if (result.citations.length > 0) {
-            handleUpdate('groundingCitations', [...(localPost.groundingCitations || []), ...result.citations]);
+        try {
+            const result = await generateTopics(niche, useGoogle);
+            setGeneratedTopics(prev => ({
+                topics: [...result.topics, ...(prev?.topics ?? [])],
+                citations: [...result.citations, ...(prev?.citations ?? [])]
+            }));
+            if (result.citations.length > 0) {
+                handleUpdate('groundingCitations', [...(localPost.groundingCitations || []), ...result.citations]);
+            }
+        } catch (error) {
+            addToast((error as Error).message, 'error');
+        } finally {
+            setIsGeneratingTopics(false);
         }
-        setIsGeneratingTopics(false);
     };
 
     const handleGenerateCaptions = async (useGoogle: boolean) => {
-        if (!localPost.topic) return;
+        if (!localPost.topic || !brandVoice) return;
         setIsGeneratingCaptions(true);
-        const { captions, citations } = await generateCaptions(localPost.topic, niche, brandVoice, useGoogle);
-        setGeneratedCaptions(prev => [...captions, ...prev]);
-        if (citations.length > 0) {
-            handleUpdate('groundingCitations', [...(localPost.groundingCitations || []), ...citations]);
+        try {
+            const { captions, citations } = await generateCaptions(localPost.topic, niche!, brandVoice, useGoogle);
+            setGeneratedCaptions(prev => [...captions, ...prev]);
+            if (citations.length > 0) {
+                handleUpdate('groundingCitations', [...(localPost.groundingCitations || []), ...citations]);
+            }
+        } catch (error) {
+            addToast((error as Error).message, 'error');
+        } finally {
+            setIsGeneratingCaptions(false);
         }
-        setIsGeneratingCaptions(false);
     };
 
     const handleGenerateHashtags = async () => {
         if (!localPost.caption) return;
         setIsGeneratingHashtags(true);
-        const hashtags = await generateHashtags(localPost.caption);
-        setGeneratedHashtags(prev => [...hashtags, ...prev]);
-        setIsGeneratingHashtags(false);
+        try {
+            const hashtags = await generateHashtags(localPost.caption);
+            setGeneratedHashtags(prev => [...hashtags, ...prev]);
+        } catch (error) {
+            addToast((error as Error).message, 'error');
+        } finally {
+            setIsGeneratingHashtags(false);
+        }
     };
     
     const handleGenerateVisual = async () => {
@@ -185,28 +210,37 @@ export const PostEditor: React.FC<PostEditorProps> = ({ post, niche, pillars, br
         setIsGeneratingVisual(true);
         handleUpdate('imageUrl', null);
         handleUpdate('videoUrl', null);
-
-        if (localPost.contentType === 'Reel') {
-            const videoUrl = await generateVideo(visualPrompt, aspectRatio as '9:16' | '16:9');
-            if(videoUrl) handleUpdate('videoUrl', videoUrl);
-        } else {
-            const imageUrl = await generateImage(visualPrompt, aspectRatio);
-            if(imageUrl) handleUpdate('imageUrl', imageUrl);
+        try {
+            if (localPost.contentType === 'Reel') {
+                const videoUrl = await generateVideo(visualPrompt, aspectRatio as '9:16' | '16:9');
+                if(videoUrl) handleUpdate('videoUrl', videoUrl);
+            } else {
+                const imageUrl = await generateImage(visualPrompt, aspectRatio);
+                if(imageUrl) handleUpdate('imageUrl', imageUrl);
+            }
+        } catch (error) {
+            addToast((error as Error).message, 'error');
+        } finally {
+            setIsGeneratingVisual(false);
         }
-        setIsGeneratingVisual(false);
     };
-
+    
     const handleEditImage = async () => {
         if (!editPrompt || !localPost.imageUrl) return;
         setIsEditingImage(true);
-        const mimeType = localPost.imageUrl.substring(5, localPost.imageUrl.indexOf(';'));
-        const newImageUrl = await editImage(localPost.imageUrl, mimeType, editPrompt);
-        if (newImageUrl) {
-            handleUpdate('imageUrl', newImageUrl);
+        try {
+            const mimeType = localPost.imageUrl.substring(5, localPost.imageUrl.indexOf(';'));
+            const newImageUrl = await editImage(localPost.imageUrl, mimeType, editPrompt);
+            if (newImageUrl) {
+                handleUpdate('imageUrl', newImageUrl);
+            }
+        } catch (error) {
+            addToast((error as Error).message, 'error');
+        } finally {
+            setIsEditingImage(false);
         }
-        setIsEditingImage(false);
     };
-    
+
     const handleClearTopics = () => setGeneratedTopics(null);
 
     return (
@@ -222,6 +256,8 @@ export const PostEditor: React.FC<PostEditorProps> = ({ post, niche, pillars, br
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                        {/* UI remains largely the same, but logic now uses context */}
+                        
                         {/* Content Type */}
                         <div>
                             <label className="text-sm font-semibold text-slate-600 mb-2 block">Content Type</label>
@@ -283,7 +319,6 @@ export const PostEditor: React.FC<PostEditorProps> = ({ post, niche, pillars, br
                                  <div className="flex items-center gap-3">
                                     <label className="text-sm font-semibold text-slate-600">Aspect Ratio:</label>
                                     <div className="flex gap-2">
-                                        {/* FIX: Wrapped the ternary expression in parentheses to ensure the type cast applies to the entire result. */}
                                         {((localPost.contentType === 'Reel' ? ['9:16', '16:9'] : ['1:1', '3:4', '4:3', '16:9']) as AspectRatio[]).map(ar => {
                                             const icons: Record<AspectRatio, React.ReactNode> = {
                                                 '1:1': <SquareIcon className="w-5 h-5" />,
@@ -446,7 +481,6 @@ export const PostEditor: React.FC<PostEditorProps> = ({ post, niche, pillars, br
                                 </div>
                             )}
                         </div>
-
                     </div>
 
                     <div className="p-4 border-t border-slate-200 bg-white">

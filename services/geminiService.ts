@@ -1,4 +1,4 @@
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI, Modality, Type } from "@google/genai";
 import type { GenerateContentResponse, GenerateContentParameters } from "@google/genai";
 import type { Pillar, BrandVoice, BrandVoiceAnalysis, ContentType, Post, VisualHarmonyAnalysis, VoiceConsistencyAnalysis, PerformancePrediction, GroundingCitation, AspectRatio, BrandDiscoveryResult } from "../types";
 
@@ -12,48 +12,28 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
 
 const PILLAR_COLORS = ['bg-sky-200', 'bg-lime-200', 'bg-amber-200', 'bg-violet-200', 'bg-rose-200'];
 
+const safeJsonParse = (text: string) => {
+  const cleanText = text.replace(/^```json\s*|```\s*$/g, '');
+  return JSON.parse(cleanText);
+}
 
 export const discoverBrandFromUrl = async (niche: string, url: string): Promise<BrandDiscoveryResult> => {
+    const prompt = `
+    You are a world-class brand strategist AI. Analyze a brand from its website URL and niche.
+    **Brand Niche:** "${niche}"
+    **Website URL:** "${url}"
+    Analyze content from the URL using Google Search to understand the brand. Generate:
+    1. A concise, refined niche statement.
+    2. 5 relevant content pillars (name, single emoji, color from ${PILLAR_COLORS.join(', ')}).
+    3. Brand Voice Analysis:
+        - A brief summary (2-3 sentences).
+        - Numerical scores (-1.0 to 1.0) for "formality", "humor", "tone".
+    Return ONLY a single valid JSON object with keys "niche", "pillars", and "voiceAnalysis".
+    `;
+
     try {
-        const prompt = `
-        You are a world-class brand strategist AI. Your task is to analyze a brand based on its website URL and niche to pre-configure a content planner.
-
-        **Brand Niche:** "${niche}"
-        **Website URL:** "${url}"
-
-        **Instructions:**
-        Analyze the content from the provided URL using Google Search grounding to understand the brand's identity. Based on this analysis, generate the following:
-        
-        1.  **Niche Refinement:** A concise, refined niche statement for the brand.
-        2.  **Content Pillars:** 5 relevant content pillar suggestions. For each pillar, provide a short name, a single relevant emoji, and pick a color from this list: ${PILLAR_COLORS.join(', ')}.
-        3.  **Brand Voice Analysis:**
-            *   A brief, encouraging summary (2-3 sentences) of the brand's voice.
-            *   Numerical scores on three scales from -1.0 to 1.0:
-                *   "formality": -1.0 for very casual, 1.0 for very formal.
-                *   "humor": -1.0 for very serious, 1.0 for very humorous.
-                *   "tone": -1.0 for very direct, 1.0 for very poetic/inspirational.
-
-        **Output Format:**
-        Return ONLY a single valid JSON object with the keys "niche", "pillars", and "voiceAnalysis".
-        The "pillars" key should be an array of objects.
-        The "voiceAnalysis" key should be an object.
-
-        Example:
-        {
-          "niche": "Specialty eco-friendly coffee for discerning amateurs.",
-          "pillars": [
-            { "name": " brewing Tips", "emoji": "💡", "color": "bg-sky-200" },
-            { "name": "Bean Origins", "emoji": "🌍", "color": "bg-lime-200" }
-          ],
-          "voiceAnalysis": {
-            "summary": "The voice is knowledgeable yet approachable, focusing on quality and sustainability. It's passionate and aims to educate.",
-            "formality": 0.3,
-            "humor": 0.1,
-            "tone": 0.5
-          }
-        }
-        `;
-
+        // FIX: Per API guidelines, responseMimeType and responseSchema should not be set when using the googleSearch tool.
+        // The prompt has been updated to explicitly request a single JSON object for more reliable parsing.
         const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
@@ -62,34 +42,12 @@ export const discoverBrandFromUrl = async (niche: string, url: string): Promise<
             }
         });
 
-        const text = response.text.trim();
-        const jsonString = text.replace(/^```json\s*|```\s*$/g, '');
-        const discoveryResult = JSON.parse(jsonString);
-        
-        if (discoveryResult.niche && Array.isArray(discoveryResult.pillars) && discoveryResult.voiceAnalysis) {
-            return discoveryResult;
-        }
-        throw new Error("Invalid format for brand discovery");
+        const discoveryResult = safeJsonParse(response.text);
+        return discoveryResult;
 
     } catch (error) {
         console.error("Error discovering brand from URL:", error);
-         // Fallback in case of error
-        return {
-            niche: niche || "Your Awesome Niche",
-            pillars: [
-                { name: 'Educational', emoji: '💡', color: 'bg-sky-200' },
-                { name: 'Inspirational', emoji: '✨', color: 'bg-amber-200' },
-                { name: 'Community', emoji: '💬', color: 'bg-lime-200' },
-                { name: 'Behind the Scenes', emoji: '🎬', color: 'bg-violet-200' },
-                { name: 'Promotion', emoji: '🚀', color: 'bg-rose-200' },
-            ],
-            voiceAnalysis: {
-                summary: "Could not analyze the URL, but here's a balanced starting point! Adjust the sliders to match your style.",
-                formality: 0.0,
-                humor: 0.0,
-                tone: 0.0,
-            }
-        };
+        throw new Error("Failed to analyze the website. Please check the URL or describe your niche manually.");
     }
 };
 
@@ -105,88 +63,75 @@ const getVoiceDescription = (voice: BrandVoice): string => {
 }
 
 export const generateCaptions = async (topic: string, niche: string, voice: BrandVoice, useGoogleSearch: boolean = false): Promise<{captions: {caption: string, justification: string}[], citations: GroundingCitation[]}> => {
-  try {
-    const voiceDescription = getVoiceDescription(voice);
-    let prompt = `You are an expert social media strategist embodying a specific brand voice.
-    Your task is to generate 3 distinct and engaging Instagram captions.
-
-    **Brand Voice Profile:**
-    ${voiceDescription}
-
-    **Post Details:**
-    - **Topic:** "${topic}"
-    - **Audience Niche:** "${niche}"
-
-    **Requirements:**
-    1.  Each caption must be under 150 words.
-    2.  Incorporate relevant emojis that match the brand voice.
-    3.  End with a compelling call to action.
-    4.  The generated captions MUST strictly adhere to the brand voice profile.`;
-    
-    if(useGoogleSearch) {
-        prompt += "\n5. Use Google Search to find up-to-date information or recent events related to the topic to make the captions more relevant and timely."
-    }
-
-    prompt += `
-    **Output Format:**
-    Return a JSON array of objects. Each object must have two keys: "caption" (the generated text) and "justification" (a brief explanation of how that specific caption aligns with the brand voice).
-
-    Example:
-    [
-      {
-        "caption": "Your caption here...",
-        "justification": "This is direct and inspirational, perfectly matching your brand voice."
-      },
-      {
-        "caption": "Another caption here...",
-        "justification": "This option uses a more humorous and casual tone, as requested."
+  const voiceDescription = getVoiceDescription(voice);
+  let prompt = `You are an expert social media strategist. Generate 3 distinct Instagram captions.
+    **Brand Voice Profile:** ${voiceDescription}
+    **Topic:** "${topic}"
+    **Audience Niche:** "${niche}"
+    Each caption must be under 150 words, include emojis, a CTA, and strictly adhere to the voice profile.`;
+  
+  if(useGoogleSearch) {
+      prompt += "\nUse Google Search for up-to-date info to make captions more relevant."
+  }
+  
+  const config: GenerateContentParameters['config'] = {
+      responseMimeType: 'application/json',
+      responseSchema: {
+          type: Type.ARRAY,
+          items: {
+              type: Type.OBJECT,
+              properties: {
+                  caption: { type: Type.STRING },
+                  justification: { type: Type.STRING }
+              },
+              required: ['caption', 'justification']
+          }
       }
-    ]
-    `;
+  };
+  if (useGoogleSearch) {
+      config.tools = [{googleSearch: {}}];
+      // FIX: Per API guidelines, responseMimeType and responseSchema should not be set when using the googleSearch tool.
+      delete config.responseMimeType;
+      delete config.responseSchema;
+      prompt += '\nReturn ONLY a valid JSON array of objects with "caption" and "justification" keys.'
+  }
 
-    const config: GenerateContentParameters['config'] = {};
-    if (useGoogleSearch) {
-        config.tools = [{googleSearch: {}}];
-    }
-
+  try {
     const response: GenerateContentResponse = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
       config,
     });
     
-    const text = response.text.trim();
-    const jsonString = text.replace(/^```json\s*|```\s*$/g, '');
-    const captions = JSON.parse(jsonString);
-
+    const captions = safeJsonParse(response.text);
     const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const citations: GroundingCitation[] = chunks
         .filter((c: any) => c.web && c.web.uri)
         .map((c: any) => ({ uri: c.web.uri, title: c.web.title || c.web.uri }));
 
-    const validCaptions = (Array.isArray(captions) && captions.every(c => c.caption && c.justification)) ? captions : [];
-    
-    return { captions: validCaptions, citations };
+    return { captions, citations };
   } catch (error) {
     console.error("Error generating captions:", error);
-    return { captions: [{ caption: "Failed to generate captions. Please try again.", justification: "An error occurred during generation." }], citations: [] };
+    throw new Error("Failed to generate captions. Please try again.");
   }
 };
 
 export const generateHashtags = async (caption: string): Promise<string[]> => {
+    const prompt = `Based on the caption "${caption}", generate a list of 15-20 relevant hashtags (popular, niche, specific). Return a JSON array of strings.`;
     try {
-        const prompt = `Based on the following Instagram caption, generate a list of 15-20 relevant hashtags. Mix popular, niche, and specific hashtags. Format the output as a JSON array of strings. Caption: "${caption}"`;
         const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
+            }
         });
-        const text = response.text.trim();
-        const jsonString = text.replace(/^```json\s*|```\s*$/g, '');
-        const hashtags = JSON.parse(jsonString);
-        return Array.isArray(hashtags) ? hashtags.map(h => h.startsWith('#') ? h : `#${h}`) : [];
+        const hashtags = safeJsonParse(response.text);
+        return hashtags.map((h: string) => h.startsWith('#') ? h : `#${h}`);
     } catch (error) {
         console.error("Error generating hashtags:", error);
-        return ["#error"];
+        throw new Error("Failed to generate hashtags.");
     }
 };
 
@@ -197,103 +142,54 @@ interface CampaignPostSuggestion {
 }
 
 export const generateCampaign = async (objective: string, details: string, niche: string): Promise<CampaignPostSuggestion[]> => {
-    try {
-        const prompt = `
-        You are a world-class marketing strategist planning an Instagram campaign.
-
+    const prompt = `You are a world-class marketing strategist planning an Instagram campaign.
         **Niche:** "${niche}"
         **Campaign Objective:** "${objective}"
         **Campaign Details:** "${details}"
-
-        Your task is to create a strategic 5-post sequence to build hype and achieve the campaign objective. The sequence should follow a logical narrative (e.g., teaser, reveal, details, launch, follow-up).
-
-        For each of the 5 posts, provide:
-        1.  A unique grid position from 1 to 9. The most important "launch" post should be in a central position like 5.
-        2.  A suggested content type ('Image', 'Reel', 'Carousel').
-        3.  A compelling, short topic or idea for the post.
-
-        **Output Format:**
-        Return ONLY a valid JSON array of 5 objects. Each object must have "position", "contentType", and "topic" keys. Do not include any other text or markdown formatting.
-
-        Example:
-        [
-          { "position": 2, "contentType": "Image", "topic": "Teaser: A silhouette of the new product with a mysterious caption." },
-          { "position": 4, "contentType": "Carousel", "topic": "Behind the Scenes: The making of our new collection." },
-          { "position": 5, "contentType": "Reel", "topic": "THE BIG REVEAL: Introducing the full Autumn collection in motion." },
-          { "position": 6, "contentType": "Carousel", "topic": "Detailed Look: Exploring the key features and materials of one hero product." },
-          { "position": 8, "contentType": "Image", "topic": "Early Bird Access: A graphic announcing a special offer for the first 24 hours." }
-        ]
-        `;
-        
+        Create a strategic 5-post sequence following a logical narrative. For each post, provide a unique grid position (1-9), content type ('Image', 'Reel', 'Carousel'), and a compelling topic. The launch post should be central (e.g., position 5).
+        Return ONLY a valid JSON array of 5 objects with "position", "contentType", and "topic" keys.`;
+    try {
         const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            position: { type: Type.INTEGER },
+                            contentType: { type: Type.STRING },
+                            topic: { type: Type.STRING }
+                        },
+                        required: ['position', 'contentType', 'topic']
+                    }
+                }
+            }
         });
-
-        const text = response.text.trim();
-        const jsonString = text.replace(/^```json\s*|```\s*$/g, '');
-        const campaignPosts = JSON.parse(jsonString);
-
-        if (Array.isArray(campaignPosts) && campaignPosts.length > 0 && campaignPosts.every(p => typeof p.position === 'number' && p.contentType && p.topic)) {
-            return campaignPosts;
-        }
-
-        throw new Error("Invalid format for campaign posts");
+        return safeJsonParse(response.text);
     } catch (error) {
         console.error("Error generating campaign:", error);
-        // Fallback in case of error
-        return [
-            { position: 2, contentType: "Image", topic: "Something new is coming..." },
-            { position: 4, contentType: "Carousel", topic: "A sneak peek of what we've been working on." },
-            { position: 5, contentType: "Reel", topic: "The official launch announcement!" },
-            { position: 6, contentType: "Image", topic: "Your first chance to get it." },
-            { position: 8, contentType: "Carousel", topic: "Customer stories and early feedback." },
-        ];
+        throw new Error("Failed to generate the campaign strategy.");
     }
 };
 
 export const suggestCampaignObjectives = async (niche: string): Promise<string[]> => {
+    const prompt = `You are a marketing consultant AI. Based on the niche "${niche}", suggest 3 distinct, actionable marketing campaign objectives (e.g., "Launch a new product"). Return ONLY a valid JSON array of 3 strings.`;
     try {
-        const prompt = `
-        You are a marketing consultant AI. Based on the following niche, suggest 3 distinct and actionable marketing campaign objectives.
-        
-        **Niche:** "${niche}"
-
-        **Requirements:**
-        - Keep the objectives short and clear (e.g., "Launch a new product", "Promote a seasonal sale", "Increase newsletter sign-ups").
-        - The objectives should be relevant to a brand operating in this niche on social media.
-
-        **Output Format:**
-        Return ONLY a valid JSON array of 3 strings.
-
-        Example for niche "handmade ceramic mugs":
-        [
-            "Launch the new 'Sunrise' collection",
-            "Promote a 20% off Summer Sale",
-            "Drive traffic to a blog post about 'The Art of the Perfect Pour'"
-        ]
-        `;
-
         const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
+            }
         });
-
-        const text = response.text.trim();
-        const jsonString = text.replace(/^```json\s*|```\s*$/g, '');
-        const objectives = JSON.parse(jsonString);
-
-        if (Array.isArray(objectives) && objectives.length === 3 && objectives.every(o => typeof o === 'string')) {
-            return objectives;
-        }
-        throw new Error("Invalid format for campaign objectives");
+        return safeJsonParse(response.text);
     } catch (error) {
         console.error("Error suggesting campaign objectives:", error);
-        return [
-            "Launch new collection",
-            "Promote a special offer",
-            "Increase audience engagement"
-        ];
+        throw new Error("Failed to suggest campaign objectives.");
     }
 };
 
@@ -302,40 +198,34 @@ export const generateImage = async (prompt: string, aspectRatio: AspectRatio = '
         const response = await ai.models.generateImages({
             model: 'imagen-4.0-generate-001',
             prompt: `A vibrant, high-quality, professional photograph for an Instagram post. ${prompt}`,
-            config: {
-                numberOfImages: 1,
-                outputMimeType: 'image/jpeg',
-                aspectRatio,
-            },
+            config: { numberOfImages: 1, outputMimeType: 'image/jpeg', aspectRatio },
         });
 
         if (response.generatedImages && response.generatedImages.length > 0) {
-            const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
-            return `data:image/jpeg;base64,${base64ImageBytes}`;
+            return `data:image/jpeg;base64,${response.generatedImages[0].image.imageBytes}`;
         }
         return null;
     } catch (error) {
         console.error("Error generating image:", error);
-        return null;
+        throw new Error("Failed to generate the image.");
     }
 };
 
 export const generateVideo = async (prompt: string, aspectRatio: '16:9' | '9:16' = '9:16'): Promise<string | null> => {
+    let delay = 5000; // Initial delay of 5 seconds
+    const maxDelay = 30000; // Max delay of 30 seconds
+
     try {
-        // Create a new instance right before the call to ensure the latest key is used.
         const aiWithKey = new GoogleGenAI({ apiKey: process.env.API_KEY! });
         let operation = await aiWithKey.models.generateVideos({
             model: 'veo-3.1-fast-generate-preview',
             prompt: `A vibrant, high-quality, professional video for an Instagram Reel. ${prompt}`,
-            config: {
-                numberOfVideos: 1,
-                resolution: '720p',
-                aspectRatio: aspectRatio
-            }
+            config: { numberOfVideos: 1, resolution: '720p', aspectRatio: aspectRatio }
         });
 
         while (!operation.done) {
-            await new Promise(resolve => setTimeout(resolve, 10000));
+            await new Promise(resolve => setTimeout(resolve, delay));
+            delay = Math.min(delay * 2, maxDelay); // Exponential backoff
             operation = await aiWithKey.operations.getVideosOperation({ operation: operation });
         }
 
@@ -351,10 +241,9 @@ export const generateVideo = async (prompt: string, aspectRatio: '16:9' | '9:16'
     } catch (error) {
         console.error("Error generating video:", error);
         if (error instanceof Error && error.message.includes("Requested entity was not found.")) {
-             // This error indicates the key might be invalid, prompt the user to select again.
              await window.aistudio.openSelectKey();
         }
-        return null;
+        throw new Error("Failed to generate the video.");
     }
 };
 
@@ -364,148 +253,148 @@ export const editImage = async (base64ImageData: string, mimeType: string, promp
             model: 'gemini-2.5-flash-image',
             contents: {
                 parts: [
-                    {
-                        inlineData: {
-                            data: base64ImageData.split(',')[1],
-                            mimeType: mimeType,
-                        },
-                    },
+                    { inlineData: { data: base64ImageData.split(',')[1], mimeType: mimeType } },
                     { text: prompt },
                 ],
             },
-            config: {
-                responseModalities: [Modality.IMAGE],
-            },
+            config: { responseModalities: [Modality.IMAGE] },
         });
         const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
         if (part?.inlineData) {
-            const base64ImageBytes: string = part.inlineData.data;
-            return `data:${part.inlineData.mimeType};base64,${base64ImageBytes}`;
+            return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
         }
         return null;
     } catch (error) {
         console.error("Error editing image:", error);
-        return null;
+        throw new Error("Failed to edit the image.");
     }
 };
 
 export const predictPerformance = async (caption: string, contentType: ContentType): Promise<PerformancePrediction> => {
-    try {
-        const prompt = `
-        You are a social media expert AI. Analyze the following Instagram post content and predict its engagement potential.
-
-        **Content Details:**
-        - **Content Type:** ${contentType}
-        - **Caption:** "${caption}"
-
+    const prompt = `
+        You are a social media expert AI. Analyze the post content and predict its engagement potential.
+        **Content Type:** ${contentType}
+        **Caption:** "${caption}"
         **Task:**
-        1.  Provide a "performanceScore" from 0 to 100, where 100 is exceptional engagement potential. Base this score on the caption's clarity, emotional hook, call-to-action (CTA), length, and overall quality. A short, unengaging caption should receive a low score. A well-crafted caption with a clear CTA should be high.
-        2.  Provide an array of 2-3 brief, actionable "feedback" strings for improvement. If the post is already good, the feedback can be reinforcing.
-
-        **Output Format:**
+        1.  Provide a "performanceScore" from 0 to 100.
+        2.  Provide an array of 2-3 brief, actionable "feedback" strings.
         Return ONLY a valid JSON object with "performanceScore" and "feedback" keys.
-
-        Example:
-        {
-          "performanceScore": 75,
-          "feedback": [
-            "The story is compelling and creates a great hook.",
-            "Consider adding a more direct question to boost comments.",
-            "The use of emojis is well-balanced."
-          ]
-        }
-        `;
+    `;
+    try {
         const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        performanceScore: { type: Type.INTEGER },
+                        feedback: { type: Type.ARRAY, items: { type: Type.STRING } }
+                    },
+                    required: ['performanceScore', 'feedback']
+                }
+            }
         });
-        
-        const text = response.text.trim();
-        const jsonString = text.replace(/^```json\s*|```\s*$/g, '');
-        const prediction = JSON.parse(jsonString);
-
-        if (typeof prediction.performanceScore === 'number' && Array.isArray(prediction.feedback)) {
-            return prediction;
-        }
-        throw new Error("Invalid format for performance prediction");
-
+        return safeJsonParse(response.text);
     } catch (error) {
         console.error("Error predicting performance:", error);
-        return {
-            performanceScore: 0,
-            feedback: ["Could not analyze performance at this time."],
-        };
+        throw new Error("Could not analyze performance.");
     }
 };
 
-// --- SIMULATED STRATEGIC ANALYSIS FUNCTIONS ---
-
 export const analyzeVisualHarmony = async (posts: Post[]): Promise<VisualHarmonyAnalysis> => {
-    // In a real app, this would involve image analysis.
-    // Here, we simulate a positive outcome.
-    console.log("Simulating visual harmony analysis...");
-    await new Promise(res => setTimeout(res, 500)); // Simulate network delay
-    return {
-        score: 'Excellente',
-        feedback: "Votre palette de couleurs est cohérente. Bon travail !"
-    };
+    const prompt = `You are a design critic AI. Analyze the following list of Instagram post topics and their visual types to determine the overall visual harmony of the grid. Consider variety in content types and themes.
+    **Posts:** ${JSON.stringify(posts.map(p => ({topic: p.topic, type: p.contentType, hasVisual: !!p.imageUrl || !!p.videoUrl})))}
+    Provide a 'score' ('Excellente', 'Moyenne', or 'Faible') and brief 'feedback'.
+    Return ONLY a valid JSON object with "score" and "feedback" keys.`;
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        score: { type: Type.STRING },
+                        feedback: { type: Type.STRING }
+                    },
+                    required: ['score', 'feedback']
+                }
+            }
+        });
+        return safeJsonParse(response.text);
+    } catch (error) {
+        console.error("Error analyzing visual harmony:", error);
+        throw new Error("Could not analyze visual harmony.");
+    }
 };
 
 export const analyzeVoiceConsistency = async (posts: Post[], brandVoice: BrandVoice): Promise<VoiceConsistencyAnalysis> => {
-    // In a real app, this would analyze caption text against the voice profile.
-    // Here, we simulate a positive outcome.
-    console.log("Simulating voice consistency analysis...");
-    await new Promise(res => setTimeout(res, 500)); // Simulate network delay
-    return {
-        score: 'Constante',
-        feedback: "Votre ton reste inspirant et direct sur tous les posts planifiés."
-    };
+    const voiceDescription = getVoiceDescription(brandVoice);
+    const prompt = `You are a brand voice analyst AI. Your defined brand voice is: ${voiceDescription}.
+    Analyze the captions of the following posts to check for consistency with this voice.
+    **Posts:** ${JSON.stringify(posts.map(p => p.caption))}
+    Provide a 'score' ('Constante' or 'Variable') and brief 'feedback'.
+    Return ONLY a valid JSON object with "score" and "feedback" keys.`;
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        score: { type: Type.STRING },
+                        feedback: { type: Type.STRING }
+                    },
+                    required: ['score', 'feedback']
+                }
+            }
+        });
+        return safeJsonParse(response.text);
+    } catch (error) {
+        console.error("Error analyzing voice consistency:", error);
+        throw new Error("Could not analyze voice consistency.");
+    }
 };
 
 export const generateTopics = async (niche: string, useGoogleSearch: boolean = false): Promise<{topics: string[], citations: GroundingCitation[]}> => {
+    let prompt = `Based on the niche "${niche}", generate 5 short, compelling topic ideas for an Instagram post.`
+    if (useGoogleSearch) {
+        prompt = `You are a trend analyst AI. Using Google Search, find 5 current and trending topic ideas for Instagram posts relevant to the niche "${niche}".`
+    }
+    prompt += `\nReturn ONLY a JSON array of 5 strings.`;
+    
+    const config: GenerateContentParameters['config'] = {
+        responseMimeType: 'application/json',
+        responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
+    };
+    if (useGoogleSearch) {
+        config.tools = [{googleSearch: {}}];
+        // FIX: Per API guidelines, responseMimeType and responseSchema should not be set when using the googleSearch tool.
+        delete config.responseMimeType;
+        delete config.responseSchema;
+    }
+
     try {
-        let prompt = `Based on the niche "${niche}", generate 5 short, compelling, and SEO-friendly topic ideas or titles for an Instagram post. Keep them concise and engaging.`
-        
-        if (useGoogleSearch) {
-            prompt = `You are a trend analyst AI. Using Google Search, find 5 current and trending topic ideas for Instagram posts relevant to the niche "${niche}". Focus on recent events, popular discussions, or seasonal interests.`
-        }
-
-        prompt += `\n\nFormat the output as a JSON array of strings.
-        
-        Example for niche "sustainable fashion":
-        [
-          "5 Myths About Slow Fashion Debunked",
-          "How to Build a Capsule Wardrobe That Lasts",
-          "The Secret to Mending Your Favorite Jeans",
-          "Why You Should Thrift Your Next Outfit",
-          "Meet the Maker: The Story Behind Our Organic Cotton Tees"
-        ]`;
-
-        const config: GenerateContentParameters['config'] = {};
-        if (useGoogleSearch) {
-            config.tools = [{googleSearch: {}}];
-        }
-
         const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
             config
         });
 
-        const text = response.text.trim();
-        const jsonString = text.replace(/^```json\s*|```\s*$/g, '');
-        const topics = JSON.parse(jsonString);
-
+        const topics = safeJsonParse(response.text);
         const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
         const citations: GroundingCitation[] = chunks
             .filter((c: any) => c.web && c.web.uri)
             .map((c: any) => ({ uri: c.web.uri, title: c.web.title || c.web.uri }));
         
-        const validTopics = (Array.isArray(topics) && topics.every(t => typeof t === 'string')) ? topics : [];
-        return { topics: validTopics, citations };
-
+        return { topics, citations };
     } catch (error) {
         console.error("Error generating topics:", error);
-        return { topics: ["Failed to generate topics, please try again."], citations: [] };
+        throw new Error("Failed to generate topics.");
     }
 };

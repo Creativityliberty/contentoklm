@@ -1,24 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import type { Post, Pillar, BrandVoice, VisualHarmonyAnalysis, VoiceConsistencyAnalysis } from '../../types';
 import GridPlanner from '../GridPlanner';
 import StrategicAnalysisDashboard from '../StrategicAnalysisDashboard';
-import CampaignsDisplay from './CampaignsDisplay'; // Import the new component
+import CampaignsDisplay from './CampaignsDisplay';
 import { TargetIcon, RocketLaunchIcon, GridIcon, MapIcon } from '../icons';
 import { analyzeVisualHarmony, analyzeVoiceConsistency } from '../../services/geminiService';
-
+import { PostsContext } from '../../contexts/PostsContext';
+import { AppContext } from '../../contexts/AppContext';
+import { ToastContext } from '../../contexts/ToastContext';
 
 interface PostsViewProps {
-    posts: Post[];
-    pillars: Pillar[];
-    brandVoice: BrandVoice;
-    niche: string;
-    onSelectPost: (id: number) => void;
     onOpenCampaignModal: () => void;
 }
 
 type PostSubView = 'grid' | 'campaigns';
 
-const PostsView: React.FC<PostsViewProps> = ({ posts, pillars, brandVoice, niche, onSelectPost, onOpenCampaignModal }) => {
+const PostsView: React.FC<PostsViewProps> = ({ onOpenCampaignModal }) => {
+    const { posts, setEditingPostId } = useContext(PostsContext)!;
+    const { pillars, brandVoice } = useContext(AppContext)!;
+    const { addToast } = useContext(ToastContext)!;
+
     const [visualHarmony, setVisualHarmony] = useState<VisualHarmonyAnalysis | null>(null);
     const [voiceConsistency, setVoiceConsistency] = useState<VoiceConsistencyAnalysis | null>(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -28,17 +29,22 @@ const PostsView: React.FC<PostsViewProps> = ({ posts, pillars, brandVoice, niche
         const analyzeGrid = async () => {
             if (!brandVoice) return;
             setIsAnalyzing(true);
-            const [harmonyResult, voiceResult] = await Promise.all([
-                analyzeVisualHarmony(posts),
-                analyzeVoiceConsistency(posts, brandVoice)
-            ]);
-            setVisualHarmony(harmonyResult);
-            setVoiceConsistency(voiceResult);
-            setIsAnalyzing(false);
+            try {
+                const [harmonyResult, voiceResult] = await Promise.all([
+                    analyzeVisualHarmony(posts),
+                    analyzeVoiceConsistency(posts, brandVoice)
+                ]);
+                setVisualHarmony(harmonyResult);
+                setVoiceConsistency(voiceResult);
+            } catch (error) {
+                addToast("Failed to analyze grid strategy.", "error");
+            } finally {
+                setIsAnalyzing(false);
+            }
         };
 
         analyzeGrid();
-    }, [posts, brandVoice]);
+    }, [posts, brandVoice, addToast]);
 
     return (
         <div className="py-10">
@@ -57,7 +63,6 @@ const PostsView: React.FC<PostsViewProps> = ({ posts, pillars, brandVoice, niche
                     </button>
                 </div>
                 
-                {/* Tabs for Grid/Campaigns */}
                 <div className="mb-6 border-b border-slate-200">
                     <nav className="-mb-px flex space-x-6" aria-label="Tabs">
                         <button
@@ -85,25 +90,21 @@ const PostsView: React.FC<PostsViewProps> = ({ posts, pillars, brandVoice, niche
                     </nav>
                 </div>
 
-
                 {activeTab === 'grid' && (
                     <>
                         <div className="mb-4">
                             <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">Analyse de la grille actuelle :</h3>
                         </div>
                         <StrategicAnalysisDashboard
-                            posts={posts}
-                            pillars={pillars}
-                            visualHarmony={visualHarmony}
-                            voiceConsistency={voiceConsistency}
                             isLoading={isAnalyzing}
                         />
-                         <GridPlanner posts={posts} pillars={pillars} onSelectPost={onSelectPost} />
+                         {/* FIX: Pass 'posts' and 'pillars' to GridPlanner to satisfy its required props. */}
+                         <GridPlanner posts={posts} pillars={pillars} onSelectPost={setEditingPostId} />
                     </>
                 )}
 
                 {activeTab === 'campaigns' && (
-                    <CampaignsDisplay posts={posts} pillars={pillars} onSelectPost={onSelectPost} />
+                    <CampaignsDisplay onSelectPost={setEditingPostId} />
                 )}
             </div>
         </div>

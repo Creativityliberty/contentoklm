@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import type { Post, Pillar } from '../../types';
 import { RocketLaunchIcon, ImageIcon } from '../icons';
+import { PostsContext } from '../../contexts/PostsContext';
+import { AppContext } from '../../contexts/AppContext';
 
 interface CampaignPostCellProps {
   post: Post;
@@ -26,12 +28,13 @@ const CampaignPostCell: React.FC<CampaignPostCellProps> = ({ post, pillar, onSel
 
 
 interface CampaignsDisplayProps {
-  posts: Post[];
-  pillars: Pillar[];
   onSelectPost: (id: number) => void;
 }
 
-const CampaignsDisplay: React.FC<CampaignsDisplayProps> = ({ posts, pillars, onSelectPost }) => {
+const CampaignsDisplay: React.FC<CampaignsDisplayProps> = ({ onSelectPost }) => {
+  const { posts } = useContext(PostsContext)!;
+  const { pillars } = useContext(AppContext)!;
+
   const campaigns = posts.reduce((acc, post) => {
     if (post.campaignId) {
       if (!acc[post.campaignId]) {

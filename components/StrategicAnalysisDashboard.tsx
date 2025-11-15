@@ -1,7 +1,8 @@
-
-import React from 'react';
+import React, { useContext } from 'react';
 import type { Post, Pillar, VisualHarmonyAnalysis, VoiceConsistencyAnalysis } from '../types';
 import { EyeIcon, MicrophoneIcon, BalanceIcon, CheckIcon, LoaderIcon, ThumbsUpIcon } from './icons';
+import { PostsContext } from '../contexts/PostsContext';
+import { AppContext } from '../contexts/AppContext';
 
 interface AnalysisCardProps {
     icon: React.ReactNode;
@@ -37,7 +38,10 @@ const AnalysisCard: React.FC<AnalysisCardProps> = ({ icon, title, score, scoreCo
 );
 
 
-const PillarAnalysis: React.FC<{ posts: Post[], pillars: Pillar[] }> = ({ posts, pillars }) => {
+const PillarAnalysis: React.FC = () => {
+    const { posts } = useContext(PostsContext)!;
+    const { pillars } = useContext(AppContext)!;
+
     if (pillars.length === 0) return null;
 
     const pillarCounts = pillars.map(pillar => ({
@@ -79,14 +83,12 @@ const PillarAnalysis: React.FC<{ posts: Post[], pillars: Pillar[] }> = ({ posts,
 
 
 interface StrategicAnalysisDashboardProps {
-    posts: Post[];
-    pillars: Pillar[];
-    visualHarmony: VisualHarmonyAnalysis | null;
-    voiceConsistency: VoiceConsistencyAnalysis | null;
+    visualHarmony?: VisualHarmonyAnalysis | null;
+    voiceConsistency?: VoiceConsistencyAnalysis | null;
     isLoading: boolean;
 }
 
-const StrategicAnalysisDashboard: React.FC<StrategicAnalysisDashboardProps> = ({ posts, pillars, visualHarmony, voiceConsistency, isLoading }) => {
+const StrategicAnalysisDashboard: React.FC<StrategicAnalysisDashboardProps> = ({ visualHarmony, voiceConsistency, isLoading }) => {
     return (
         <div className="mb-8 space-y-4">
             <div className="flex flex-col md:flex-row gap-4">
@@ -107,7 +109,7 @@ const StrategicAnalysisDashboard: React.FC<StrategicAnalysisDashboardProps> = ({
                     isLoading={isLoading}
                 />
             </div>
-            <PillarAnalysis posts={posts} pillars={pillars} />
+            <PillarAnalysis />
         </div>
     );
 };
